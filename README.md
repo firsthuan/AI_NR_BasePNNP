@@ -61,7 +61,7 @@ python3 trainer_PNNP_SID.py -f runfiles/SonyA7S2/Ours.yml --mode train
 python3 trainer_PNNP_LRID.py -f runfiles/IMX686/Ours.yml --mode train
 ```
 
-## 🏷️ Citation
+## 🏷�? Citation
 Please cite our paper if you find our code helpful in your research or work.
 ```bibtex
 @article{feng2023physics,
