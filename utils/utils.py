@@ -21,6 +21,7 @@ from PIL import Image
 import time
 import socket
 import scipy
+import platform
 from scipy import stats
 import argparse
 from skimage.metrics import peak_signal_noise_ratio as compare_psnr
@@ -119,7 +120,7 @@ class AverageMeter(object):
             self.history_init_flag = True
             with open(logfile, 'rb') as f:
                 history_old = pickle.load(f)
-                if self.last_epoch: # 为0则重置
+                if self.last_epoch: # �?0则重�?
                     self.history = history_old + self.history[:self.last_epoch]
         # 记录log
         with open(logfile, 'wb') as f:
@@ -201,22 +202,34 @@ def tensor_dim6to5(tensor):
     tensor = tensor.reshape(batchsize*crops, t, c, h, w)
     return tensor
 
-def get_host_with_dir(dataset_name=''):
+def get_project_info():
     multi_gpu = False
     hostname = socket.gethostname()
     log(f"User's hostname is '{hostname}'")
-    if hostname == 'ubun':
-        host = '/data/fenghansen/datasets'
-    elif hostname == 'ubuntu':
-        host = '/data4/fenghansen/datasets'
-    elif hostname == 'DESKTOP-FCAMIOQ':
-        host = 'F:/datasets'
-    elif hostname == 'DESKTOP-LGD8S6F': # BIT-816
-        host = 'E:/datasets'
+    is_windows = (platform.system() == 'Windows')
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    # Determine the base path for datasets on the current system
+    if is_windows:
+        # On Windows, assume datasets are in 'project_root/datasets'
+        datasets_base_path = os.path.join(project_root, 'datasets')
+        # Also define a base for checkpoints and results if they are expected to be in /data/
+        checkpoints_base_path = os.path.join(project_root, 'checkpoints')
+        results_base_path = os.path.join(project_root, 'results')
     else:
-        host = '/data'
-        multi_gpu = True if torch.cuda.device_count() > 1 else False
-    return hostname, host + dataset_name, multi_gpu
+        # On Linux, use the hardcoded /data or /data4 as per original logic
+        if hostname == 'ubun':
+            datasets_base_path = '/data/fenghansen/datasets'
+        elif hostname == 'ubuntu':
+            datasets_base_path = '/data4/fenghansen/datasets'
+        else:
+            datasets_base_path = '/data'
+            warnings.warn(f"Hostname '{hostname}' not recognized. Defaulting Linux dataset root to: '{datasets_base_path}'")
+        checkpoints_base_path = '/data/checkpoints' # Assuming a standard Linux setup
+        results_base_path = '/data/results' # Assuming a standard Linux setup
+
+    multi_gpu = True if torch.cuda.device_count() > 1 else False
+    return hostname, project_root, datasets_base_path, checkpoints_base_path, results_base_path, is_windows, multi_gpu
 
 def read_paired_fns(filename):
     with open(filename) as f:
@@ -253,7 +266,7 @@ def dataload(path):
         data = cv2.imread(path)[:,:,::-1]
     return data
 
-# 把ELD模型中的Unet权重单独提取出来
+# 把ELD模型的Unet权重单独提取出来
 def pth_transfer(src_path='/data/ELD/checkpoints/sid-ours-inc4/model_200_00257600.pt',
                 dst_path='checkpoints/SonyA7S2_Official.pth',
                 reverse=False):

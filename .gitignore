@@ -14,3 +14,4 @@ metrics/*
 *.h5
 *.pkl
 # runfiles/*
+datasets/*

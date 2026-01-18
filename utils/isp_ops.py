@@ -13,6 +13,7 @@ def get_ISO_ExposureTime(filepath):
     # 不限于RAW，RGB图片也适用
     raw_file = open(filepath, 'rb')
     exif_file = exifread.process_file(raw_file, details=False, strict=True)
+  
     # 获取曝光时间
     if 'EXIF ExposureTime' in exif_file:
         exposure_str = exif_file['EXIF ExposureTime'].printable
@@ -157,16 +158,11 @@ def FastISP(img4c, wb=None, ccm=None, gamma=2.2):
     img = np.clip(img, 0, 1) ** (1/gamma)
     return img
 
-def raw2rgb_rawpy(packed_raw, wb=None, ccm=None):
+def raw2rgb_rawpy(packed_raw, template_path, wb=None, ccm=None):
     """Raw2RGB pipeline (rawpy postprocess version)"""
-    if packed_raw.shape[-2] > 1500:
-        raw = rawpy.imread('templet.dng')
-        wp = 1023
-        bl = 64
-    else:
-        raw = rawpy.imread('templet.ARW')
-        wp = 16383
-        bl = 512
+    raw = rawpy.imread(template_path)
+    wp = raw.white_level
+    bl = np.mean(raw.black_level_per_channel)
     if wb is None:
         wb = np.array(raw.camera_whitebalance) 
         wb /= wb[1]

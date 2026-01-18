@@ -38,7 +38,7 @@ class SID_Trainer(Base_Trainer):
             self.proxy_net = globals()[self.proxy['name']](self.proxy)
             model_path = os.path.join(f'{self.fast_ckpt}/SonyA7S2_NoiseFlow_last_model.pth')
             model = torch.load(model_path, map_location=self.device)
-            self.proxy_net = load_weights(self.proxy_net, model, by_name=True).to(self.device)
+            self.proxy_net = load_weights(self.proxy_net, model, by_name=False).to(self.device)
             self.proxy_net.eval()
 
         self.optimizer = Adam(self.net.parameters(), lr=self.hyper['learning_rate'])
@@ -201,6 +201,15 @@ class SID_Trainer(Base_Trainer):
                 wb = data['wb'][0].numpy()
                 ccm = data['ccm'][0].numpy()
                 name = data['name'][0]
+                # The dataloader might not pass the path strings.
+                # We can retrieve them directly from the dataset object using the index k.
+                current_info = self.dst_eval.infos[k]
+                if 'long' in current_info:
+                    template_path = current_info['long']
+                elif 'short' in current_info:
+                    template_path = current_info['short']
+                else:
+                    raise KeyError("Neither 'long' nor 'short' key found in dataset info, cannot determine template path.")
                 ISO = data['ISO'].item()
                 exp = data['ExposureTime'].item()
                 # print(ISO)
@@ -255,20 +264,20 @@ class SID_Trainer(Base_Trainer):
                         else:
                             raw_metrics = [self.infos[k]['PSNR_raw'], self.infos[k]['SSIM_raw']] + raw_metrics
                         if epoch > 0:
-                            pool.append(threading.Thread(target=self.multiprocess_plot, args=(imgs_lr, imgs_dn, imgs_hr, 
-                                    wb, ccm, name, save_plot, epoch, raw_metrics, k)))
+                            pool.append(threading.Thread(target=self.multiprocess_plot, args=(imgs_lr, imgs_dn, imgs_hr,
+                                    wb, ccm, name, save_plot, epoch, raw_metrics, k, template_path)))
                             pool[k].start()
                         else:
                             infos = self.infos[k] if self.infos is not None else None
                             # 多进程
                             if infos is None:
-                                inputs = raw2rgb_rawpy(imgs_lr, wb=wb, ccm=ccm)
-                                target = raw2rgb_rawpy(imgs_hr, wb=wb, ccm=ccm)
+                                inputs = raw2rgb_rawpy(imgs_lr, template_path, wb=wb, ccm=ccm)
+                                target = raw2rgb_rawpy(imgs_hr, template_path, wb=wb, ccm=ccm)
                             else:
                                 inputs = np.load(infos['path_npy_in'])
                                 target = np.load(infos['path_npy_gt'])
                             if 'isp' not in self.dst['command'].lower():
-                                output = raw2rgb_rawpy(imgs_dn, wb=wb, ccm=ccm)
+                                output = raw2rgb_rawpy(imgs_dn, template_path, wb=wb, ccm=ccm)
                             # raw_metrics = None # 用RGB metrics
                             task_list.append(
                                 pool.submit(plot_sample, inputs, output, target, 
@@ -322,14 +331,14 @@ class SID_Trainer(Base_Trainer):
         gc.collect()
         return metrics
     
-    def multiprocess_plot(self, imgs_lr, imgs_dn, imgs_hr, wb, ccm, name, save_plot, epoch, raw_metrics, k):
+    def multiprocess_plot(self, imgs_lr, imgs_dn, imgs_hr, wb, ccm, name, save_plot, epoch, raw_metrics, k, template_path):
         # if self.infos is None:
-        inputs = raw2rgb_rawpy(imgs_lr, wb=wb, ccm=ccm)
-        target = raw2rgb_rawpy(imgs_hr, wb=wb, ccm=ccm)
+        inputs = raw2rgb_rawpy(imgs_lr, template_path, wb=wb, ccm=ccm)
+        target = raw2rgb_rawpy(imgs_hr, template_path, wb=wb, ccm=ccm)
         # else:
         #     inputs = np.load(self.infos[k]['path_npy_in'])
         #     target = np.load(self.infos[k]['path_npy_gt'])
-        output = raw2rgb_rawpy(imgs_dn, wb=wb, ccm=ccm)
+        output = raw2rgb_rawpy(imgs_dn, template_path, wb=wb, ccm=ccm)
         
         psnr, ssim, name = plot_sample(inputs, output, target, 
                         filename=name, 
@@ -369,6 +378,15 @@ class SID_Trainer(Base_Trainer):
                 wb = data['wb'][0].numpy()
                 ccm = data['ccm'][0].numpy()
                 name = data['name'][0]
+                # The dataloader might not pass the path strings.
+                # We can retrieve them directly from the dataset object using the index k.
+                current_info = self.dst_eval.infos[k]
+                if 'long' in current_info:
+                    template_path = current_info['long']
+                elif 'short' in current_info:
+                    template_path = current_info['short']
+                else:
+                    raise KeyError("Neither 'long' nor 'short' key found in dataset info, cannot determine template path.")
                 ratio = data['ratio'][0]
                 ISO = data['ISO'][0]
                 with torch.no_grad():
@@ -398,10 +416,10 @@ class SID_Trainer(Base_Trainer):
 
                     # convert raw to rgb
                     if save_plot:
-                        raw2rgb_rawpy(imgs_lr, wb=wb, ccm=ccm)
+                        raw2rgb_rawpy(imgs_lr, template_path, wb=wb, ccm=ccm)
                         savepath = os.path.join(self.sample_dir, "{}.png".format(name))
-                        savefunc = lambda path, data, wb, ccm: cv2.imwrite(path, raw2rgb_rawpy(data, wb, ccm)[:,:,::-1])
-                        pool.append(threading.Thread(target=savefunc, args=(savepath, imgs_dn, wb, ccm)))
+                        savefunc = lambda path, data, wb, ccm, template_path: cv2.imwrite(path, raw2rgb_rawpy(data, template_path, wb, ccm)[:,:,::-1])
+                        pool.append(threading.Thread(target=savefunc, args=(savepath, imgs_dn, wb, ccm, template_path)))
                         pool[-1].start()
                         pool.append(threading.Thread(target=np.save, args=(f'E:/datasets/SID/long/{name}.npy', imgs_dn.detach().cpu().numpy())))
                         pool[-1].start()
@@ -510,8 +528,8 @@ class SID_Parser():
     def parse(self):
         self.parser.add_argument('--runfile', '-f', default="runfiles/SonyA7S2/PMNNP.yml", type=Path, help="path to config")
         self.parser.add_argument('--mode', '-m', default='evaltest', type=str, help="train or test")
-        self.parser.add_argument('--debug', action='store_true', default=True, help="debug or not")
-        self.parser.add_argument('--nofig', action='store_true', default=True, help="don't save_plot")
+        self.parser.add_argument('--debug', action='store_true', default=False, help="debug or not")
+        self.parser.add_argument('--nofig', action='store_true', default=False, help="don't save plot")
         self.parser.add_argument('--nohost', action='store_true', default=False, help="don't save_plot")
         self.parser.add_argument('--gpu', default="0", help="os.environ['CUDA_VISIBLE_DEVICES']")
         return self.parser.parse_args()

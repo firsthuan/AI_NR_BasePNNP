@@ -16,7 +16,7 @@ class BaseParser():
         self.parser.add_argument('--gpu', default="0", help="os.environ['CUDA_VISIBLE_DEVICES']")
         return self.parser.parse_args()
 
-# 涓嶈繖涔堟悶闅忔満pytorch鍜宯umpy鐨勮仈鍔ㄤ細鍑篵ug锛岄殢鏈虹瀛愭湁闂
+# 不这么搞随机pytorch和numpy的联动会出bug，随机种子有问题
 def worker_init_fn(worker_id):
     torch_seed = torch.initial_seed()
     random.seed(torch_seed + worker_id)
@@ -55,29 +55,74 @@ class Base_Trainer():
         self.save_plot = False if self.parser.nofig else True
         self.args['dst']['mode'] = self.mode
         self.args['dst_train']['param'] = None
-        self.hostname, self.hostpath, self.multi_gpu = get_host_with_dir()
+        
+        self.hostname, self.project_root, self.datasets_base_path, self.checkpoints_base_path, self.results_base_path, self.is_windows, self.multi_gpu = get_project_info()
+        
+        # Helper function to resolve paths from YAML
+        def resolve_yaml_path(yaml_path, path_type='dataset'): # path_type can be 'dataset', 'checkpoint', 'result', 'other'
+            if self.is_windows:
+                # On Windows, translate Linux-style /data/ paths to local paths
+                if yaml_path.startswith('/data/'):
+                    parts = yaml_path.split('/')
+                    if parts[1] == 'data': # e.g., /data/SID/Sony
+                        relative_path_from_data = os.path.join(*parts[2:])
+                        return os.path.join(self.datasets_base_path, relative_path_from_data)
+                    elif parts[1] == 'checkpoints': # e.g., /data/checkpoints/model
+                        relative_path_from_checkpoints = os.path.join(*parts[2:])
+                        return os.path.join(self.checkpoints_base_path, relative_path_from_checkpoints)
+                    elif parts[1] == 'results': # e.g., /data/results/samples
+                        relative_path_from_results = os.path.join(*parts[2:])
+                        return os.path.join(self.results_base_path, relative_path_from_results)
+                    else:
+                        warnings.warn(f"Unknown /data/ path structure: {yaml_path}. Attempting to resolve relative to datasets base path.")
+                        return os.path.join(self.datasets_base_path, yaml_path.lstrip('/')) # Fallback: treat /data/ as part of path relative to datasets_base_path
+                else:
+                    # If it's not a /data/ path, assume it's relative to the appropriate base path
+                    if path_type == 'dataset':
+                        return os.path.join(self.datasets_base_path, yaml_path)
+                    elif path_type == 'checkpoint':
+                        return os.path.join(self.checkpoints_base_path, yaml_path)
+                    elif path_type == 'result':
+                        return os.path.join(self.results_base_path, yaml_path)
+                    else: # 'other' or unknown, assume relative to project_root
+                        return os.path.join(self.project_root, yaml_path) if not os.path.isabs(yaml_path) else yaml_path
+            else:
+                # On Linux, assume paths are correct as-is or relative to project_root
+                return os.path.join(self.project_root, yaml_path) if not os.path.isabs(yaml_path) else yaml_path
+
+        self.model_name = self.args['model_name']
+
         self.model_dir = self.args['checkpoint']
         if not self.parser.nohost:
             for key in self.args:
                 if 'dst' in key:
-                    self.args[key]['root_dir'] = os.path.join(self.hostpath, self.args[key]['root_dir'])
-                    self.args[key]['bias_dir'] = os.path.join(self.hostpath, self.args[key]['bias_dir'])
-                    self.args[key]['ds_dir'] = os.path.join(self.hostpath, self.args[key]['ds_dir'])
-            self.model_dir = os.path.join(self.hostpath, self.args['checkpoint'])
+                    for path_key in ['root_dir', 'bias_dir', 'ds_dir']:
+                        if path_key in self.args[key]:
+                            self.args[key][path_key] = resolve_yaml_path(self.args[key][path_key], path_type='dataset')
+            
+            self.model_dir = resolve_yaml_path(self.args['checkpoint'], path_type='checkpoint')
+            self.fast_ckpt = resolve_yaml_path(self.args['fast_ckpt'], path_type='checkpoint')
+            resolved_result_dir = resolve_yaml_path(self.args['result_dir'], path_type='result')
+            self.sample_dir = os.path.join(resolved_result_dir ,f"samples-{self.model_name}")
+        else:
+            # If --nohost is used, paths are taken as-is from YAML.
+            # This might still cause issues on Windows if YAML has /data/ paths.
+            # For simplicity, we'll assume --nohost means user handles paths manually.
+            self.model_dir = self.args['checkpoint']
+            self.fast_ckpt = self.args['fast_ckpt']
+            self.sample_dir = os.path.join(self.args['result_dir'] ,f"samples-{self.model_name}")
+
         self.dst = self.args['dst']
         self.hyper = self.args['hyper']
         self.arch = self.args['arch']
         self.arch_isp = self.args['arch_isp'] if 'arch_isp' in self.args else None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model_name = self.args['model_name']
-        self.fast_ckpt = self.args['fast_ckpt']
-        self.sample_dir = os.path.join(self.args['result_dir'] ,f"samples-{self.model_name}")
 
         os.makedirs(self.model_dir, exist_ok=True)
         os.makedirs(self.sample_dir, exist_ok=True)
         os.makedirs(self.sample_dir+'/temp', exist_ok=True)
         os.makedirs('./logs', exist_ok=True)
-        os.makedirs(f'./{self.fast_ckpt}', exist_ok=True)
+        os.makedirs(self.fast_ckpt, exist_ok=True) # 修正：直接使用解析后的路径
         os.makedirs('./metrics', exist_ok=True)
     
     def print_model_log(self):

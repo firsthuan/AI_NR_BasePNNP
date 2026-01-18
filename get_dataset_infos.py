@@ -76,15 +76,17 @@ def get_SID_info_from_txt(info_dir='infos', root_dir='/data/SID/Sony', txt='SID_
     long_dir = os.path.join(root_dir, 'long')
     short_dir = os.path.join(root_dir, 'short')
 
-    names = []
+    # names = []
     paths = []
     paths_short = []
     for i in range(len(fns)):
-        names.append(fns[0])
-        paths.append(os.path.join(long_dir, fns[i][1]))
-        paths_short.append(os.path.join(short_dir, fns[i][0]))
-
-    pbar = tqdm(range(len(names)))
+        # names.append(fns[0])
+        # paths.append(os.path.join(long_dir, fns[i][1]))
+        # paths_short.append(os.path.join(short_dir, fns[i][0]))
+        paths.append(os.path.join(long_dir, os.path.basename(fns[i][1])))
+        paths_short.append(os.path.join(short_dir, os.path.basename(fns[i][0])))
+    # pbar = tqdm(range(len(names)))
+    pbar = tqdm(range(len(fns)))
     infos = []
     # 第二级，文件
     for i in pbar:

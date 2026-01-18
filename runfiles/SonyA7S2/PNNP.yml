@@ -1,16 +1,16 @@
 mode: 'train'
-checkpoint: 'saved_model/SonyA7S2'
-fast_ckpt: 'checkpoints/SonyA7S2'
+checkpoint: '/data/checkpoints/saved_model/SonyA7S2'
+fast_ckpt: '/data/checkpoints/SonyA7S2'
 model_name: 'SonyA7S2_PNNP_Unet'
-result_dir: 'images/'
+result_dir: '/data/results/images/'
 num_gpu: 1
 num_workers: 4
 brightness_correct: True
 
 dst: &base_dst
-  root_dir: 'SID'
-  bias_dir: 'SonyA7S2/bias'
-  ds_dir: 'SonyA7S2/resources-old'
+  root_dir: '/data/SID/Sony'
+  bias_dir: '/data/SonyA7S2/bias'
+  ds_dir: '/data/SID/Sony/resources-old'
   dataset: Proxy_Dataset #(for train)
   dstname: 'SID'
   command: 'idremap, darkshading2, preHB'
